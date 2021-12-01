@@ -101,7 +101,6 @@ function gatherResourcesSystem:process(e, dt)
     if e.lastCoinDrop > db[mylib.team(e)].skill then
         e.lastCoinDrop = 0
         e.coins = e.coins + 1
-        print("At base " .. mylib.team(e) .. " coins: " .. e.coins)
     end
     e.coinsText.text = e.coins 
 end
@@ -111,16 +110,79 @@ world:addSystem(gatherResourcesSystem)
 
 -- Movement systtem amoeba 
 local amoebaMovementSystem = tiny.processingSystem()
-amoebaMovementSystem.filter = tiny.requireAny("histolytica", "fowleri", "proteus")
-function amoebaMovementSystem:process(e, dt)
+amoebaMovementSystem.filter = tiny.requireAny("fowleri", "proteus", "histolytica")
+function amoebaMovementSystem:process(entity, dt)
     -- Find closest enemy entity
-    -- Update direction
+    local closestEnemy
+    local minDistSq = math.huge
+    for _, other in pairs(entities) do 
+        if mylib.enemy(entity) == mylib.team(other) then
+            local distSq = mylib.distanceSq(entity, other)
+            if distSq <  minDistSq then
+                closestEnemy = other
+                minDistSq = distSq
+            end
+        end
+    end
+    -- Update directio
+    local dist = math.sqrt(minDistSq)
+    if dist < entity.size/2 then return end
+
+    local targetAngle = mylib.safe_tan2(closestEnemy.y-entity.y, 
+    closestEnemy.x-entity.x)
+
+    entity.image.rotation = 180/math.pi * targetAngle
+
+    local speed=db[entity.name].speed
+    entity.dx = speed*math.cos(targetAngle)
+    entity.dy = speed*math.sin(targetAngle)
+
+    --if dist < entity.size
     -- Update position
-    e.x = e.x + e.dx
-    e.y = e.y + e.dy
+    entity.x = entity.x + entity.dx
+    entity.y = entity.y + entity.dy
 end
 world:addSystem(amoebaMovementSystem)
 
+-- Healtealthsystem base and amoeba
+local healthSystem = tiny.processingSystem()
+healthSystem.filter = tiny.requireAny("base", "histolytica", "proteus", "fowleri")
+function healthSystem:process(entity, _)
+    if entity.health<0 then
+        entity.health = 0
+        entity.dead = true
+    end
+    local relHealth = entity.health / db[entity.name].health
+    entity.healthBar.width = relHealth * entity.size
+end
+world:addSystem(healthSystem)
+
+-- MeleeSystem base and amoeba
+local meleeSystem = tiny.processingSystem()
+meleeSystem.filter = tiny.requireAny("base", "histolytica", "proteus", "fowleri")
+function meleeSystem:process(entity, dt)
+    for _, other in pairs(entities) do
+        if mylib.enemy(entity) == mylib.team(other) then
+            local dist = mylib.distance(entity,other)
+            if dist <= entity.size/2 + other.size/2 then
+                entity.health = (entity.health - db[other.name].attack / db[entity.name].defense)
+                other.health = (other.health - db[entity.name].attack / db[other.name].defense)
+            end
+        end
+    end
+end
+world:addSystem(meleeSystem)
+
+-- Ai system
+local aiSystem = tiny.processingSystem()
+aiSystem.filter = tiny.requireAll("base", "right")
+function aiSystem:process(entity, _)
+        local amoeba = entity.nextAmoeba
+        if entity.coins>=db[amoeba].cost then
+            spawn {name=amoeba, left=entity.left, right=entity.right}
+        end
+end
+world:addSystem(aiSystem)
 -- game loop 
 world:refresh()
 
@@ -128,3 +190,4 @@ local function gameLoop()
     world:update(1)
 end
 local gameLoopTimer = timer.performWithDelay(10, gameLoop,0)
+print(db[proteus])
